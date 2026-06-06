@@ -342,6 +342,105 @@
         <el-button type="primary" @click="confirmComplete">确认完成</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="showSelectAllocation" title="选择调拨单" width="600px">
+      <el-table :data="allocationOrders" stripe border height="300" @row-click="onSelectAllocation" highlight-current-row>
+        <el-table-column prop="allocationNo" label="调拨单号" width="180" />
+        <el-table-column prop="species" label="树种" width="80">
+          <template #default="{ row }">{{ getSpeciesLabel(row.species) }}</template>
+        </el-table-column>
+        <el-table-column prop="quantity" label="数量(株)" width="100" />
+        <el-table-column prop="toPlot" label="调入地块" min-width="120" />
+        <el-table-column prop="status" label="状态" width="100">
+          <template #default="{ row }">
+            <el-tag v-if="row.status === 'pending'" type="warning">待运输</el-tag>
+            <el-tag v-else-if="row.status === 'transporting'" type="primary">运输中</el-tag>
+            <el-tag v-else-if="row.status === 'completed'" type="success">已完成</el-tag>
+            <el-tag v-else type="danger">异常</el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div class="mt-20" style="text-align: right;">
+        <el-button @click="showSelectAllocation = false">取消</el-button>
+      </div>
+    </el-dialog>
+
+    <el-dialog v-model="showTransportPreview" title="运输清单预览" width="800px">
+      <div id="transport-list-print" class="transport-print">
+        <div class="print-header">
+          <h2>苗木运输清单</h2>
+          <p class="print-no">单号：{{ transportData.allocationNo }}</p>
+        </div>
+        <table class="print-table">
+          <tr>
+            <td width="20%" class="label">调拨单号</td>
+            <td width="30%">{{ transportData.allocationNo }}</td>
+            <td width="20%" class="label">打印日期</td>
+            <td width="30%">{{ dayjs().format('YYYY-MM-DD') }}</td>
+          </tr>
+          <tr>
+            <td class="label">树种</td>
+            <td>{{ getSpeciesLabel(transportData.species) }}</td>
+            <td class="label">龄级</td>
+            <td>{{ getAgeClassLabel(transportData.ageClass) }}</td>
+          </tr>
+          <tr>
+            <td class="label">运输数量</td>
+            <td>{{ transportData.quantity }} 株</td>
+            <td class="label">调出地点</td>
+            <td>{{ transportData.fromLocation }}</td>
+          </tr>
+          <tr>
+            <td class="label">调入地块</td>
+            <td>{{ transportData.toPlot }}</td>
+            <td class="label">调拨日期</td>
+            <td>{{ transportData.allocationDate }}</td>
+          </tr>
+          <tr>
+            <td class="label">运输负责人</td>
+            <td>{{ transportData.transporter }}</td>
+            <td class="label">联系电话</td>
+            <td>{{ transportData.phone || '-' }}</td>
+          </tr>
+          <tr>
+            <td class="label">实到数量</td>
+            <td>{{ transportData.arrivedCount || transportData.quantity }} 株</td>
+            <td class="label">损耗数量</td>
+            <td>
+              <span :style="{ color: (transportData.lossCount || 0) > 0 ? '#f56c6c' : '#67c23a' }">
+                {{ transportData.lossCount || 0 }} 株
+              </span>
+            </td>
+          </tr>
+          <tr>
+            <td class="label">损耗原因</td>
+            <td colspan="3">{{ transportData.lossReason || '无' }}</td>
+          </tr>
+          <tr>
+            <td class="label">备注</td>
+            <td colspan="3">{{ transportData.remark || '无' }}</td>
+          </tr>
+        </table>
+        <div class="print-footer">
+          <div class="sign-item">
+            <p>发货人签字：_______________</p>
+          </div>
+          <div class="sign-item">
+            <p>收货人签字：_______________</p>
+          </div>
+          <div class="sign-item">
+            <p>日期：_______________</p>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="showTransportPreview = false">关闭</el-button>
+        <el-button type="primary" @click="doPrintTransport">
+          <el-icon><Printer /></el-icon>
+          打印
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -368,6 +467,9 @@ const showReceiveForm = ref(false)
 const showPlotForm = ref(false)
 const completeVisible = ref(false)
 const currentAllocation = ref(null)
+const showSelectAllocation = ref(false)
+const showTransportPreview = ref(false)
+const transportData = ref({})
 
 const stats = computed(() => {
   const now = dayjs()
@@ -536,7 +638,58 @@ const confirmComplete = async () => {
 }
 
 const printTransportList = () => {
-  ElMessage.success('运输清单打印功能开发中')
+  if (allocationOrders.value.length === 0) {
+    ElMessage.warning('暂无调拨单数据')
+    return
+  }
+  showSelectAllocation.value = true
+}
+
+const onSelectAllocation = (row) => {
+  transportData.value = { ...row }
+  showSelectAllocation.value = false
+  showTransportPreview.value = true
+}
+
+const doPrintTransport = () => {
+  const printContent = document.getElementById('transport-list-print')
+  if (!printContent) return
+  const printWindow = window.open('', '_blank', 'width=800,height=600')
+  if (!printWindow) {
+    ElMessage.error('无法打开打印窗口，请检查浏览器弹窗设置')
+    return
+  }
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <title>苗木运输清单</title>
+      <style>
+        body { font-family: 'Microsoft YaHei', sans-serif; padding: 20px; }
+        .print-header { text-align: center; margin-bottom: 20px; }
+        .print-header h2 { margin: 0 0 10px 0; font-size: 24px; }
+        .print-no { color: #666; }
+        .print-table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+        .print-table td { border: 1px solid #333; padding: 10px 15px; font-size: 14px; }
+        .print-table .label { background: #f5f5f5; font-weight: 600; width: 20%; }
+        .print-footer { display: flex; justify-content: space-between; margin-top: 50px; }
+        .sign-item { text-align: center; }
+        @media print {
+          body { padding: 0; }
+        }
+      </style>
+    </head>
+    <body>
+      ${printContent.innerHTML}
+    </body>
+    </html>
+  `)
+  printWindow.document.close()
+  printWindow.focus()
+  setTimeout(() => {
+    printWindow.print()
+  }, 300)
 }
 
 onMounted(() => {
@@ -553,5 +706,63 @@ onMounted(() => {
   color: #909399;
   font-size: 14px;
   margin-top: 5px;
+}
+
+.transport-print {
+  background: #fff;
+  padding: 20px;
+}
+
+.print-header {
+  text-align: center;
+  margin-bottom: 20px;
+  border-bottom: 2px solid #333;
+  padding-bottom: 15px;
+}
+
+.print-header h2 {
+  margin: 0 0 10px 0;
+  font-size: 24px;
+  color: #303133;
+}
+
+.print-no {
+  color: #606266;
+  margin: 0;
+}
+
+.print-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 30px;
+}
+
+.print-table td {
+  border: 1px solid #dcdfe6;
+  padding: 10px 15px;
+  font-size: 14px;
+}
+
+.print-table .label {
+  background: #f5f7fa;
+  font-weight: 600;
+  color: #606266;
+}
+
+.print-footer {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 50px;
+  padding-top: 20px;
+  border-top: 1px dashed #dcdfe6;
+}
+
+.sign-item {
+  text-align: center;
+}
+
+.sign-item p {
+  margin: 5px 0;
+  color: #606266;
 }
 </style>

@@ -3,7 +3,7 @@
     <div class="page-header">
       <h2 class="page-title">批次档案</h2>
       <div>
-        <el-button type="primary" @click="showAddDialog = true">
+        <el-button type="primary" @click="showAdd">
           <el-icon><Plus /></el-icon>
           新增批次
         </el-button>
@@ -126,7 +126,6 @@ import dayjs from 'dayjs'
 
 const treeSpecies = TREE_SPECIES
 const batches = ref([])
-const showAddDialog = ref(false)
 const detailVisible = ref(false)
 const formVisible = ref(false)
 const isEdit = ref(false)
@@ -185,6 +184,9 @@ const viewDetail = (row) => {
 const editBatch = (row) => {
   isEdit.value = true
   batchForm.value = { ...row }
+  if (batchForm.value.collectDate && typeof batchForm.value.collectDate === 'string') {
+    batchForm.value.collectDate = new Date(batchForm.value.collectDate)
+  }
   formVisible.value = true
 }
 
@@ -195,7 +197,7 @@ const showAdd = () => {
     batchNo: generateBatchNo('ZZ'),
     species: '',
     seedSource: '',
-    collectDate: '',
+    collectDate: dayjs().format('YYYY-MM-DD'),
     weight: 0,
     germinationRate: 0,
     purity: 0,
@@ -209,12 +211,16 @@ const saveBatch = async () => {
   if (!formRef.value) return
   await formRef.value.validate(async (valid) => {
     if (valid) {
+      const saveData = { ...batchForm.value }
+      if (saveData.collectDate && typeof saveData.collectDate !== 'string') {
+        saveData.collectDate = dayjs(saveData.collectDate).format('YYYY-MM-DD')
+      }
       if (isEdit.value) {
-        await updateItem(STORES.SEED_BATCHES, batchForm.value.id, batchForm.value)
+        await updateItem(STORES.SEED_BATCHES, saveData.id, saveData)
         ElMessage.success('更新成功')
       } else {
         const newItem = {
-          ...batchForm.value,
+          ...saveData,
           id: generateId(),
           status: 'active',
           createTime: dayjs().format('YYYY-MM-DD HH:mm:ss')
