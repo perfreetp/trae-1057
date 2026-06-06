@@ -15,6 +15,14 @@
           <el-icon><Download /></el-icon>
           导出年度报表
         </el-button>
+        <el-button type="info" @click="exportBackup">
+          <el-icon><Download /></el-icon>
+          数据备份
+        </el-button>
+        <el-button type="danger" @click="showRestoreDialog = true">
+          <el-icon><Upload /></el-icon>
+          数据恢复
+        </el-button>
       </div>
     </div>
 
@@ -88,11 +96,19 @@
                 </span>
               </template>
             </el-table-column>
+            <el-table-column prop="diffHandled" label="差异处理" width="100">
+              <template #default="{ row }">
+                <el-tag v-if="row.diffCount !== 0 && row.diffHandle" type="success" size="small">已处理</el-tag>
+                <el-tag v-else-if="row.diffCount !== 0" type="warning" size="small">待处理</el-tag>
+                <span v-else>-</span>
+              </template>
+            </el-table-column>
             <el-table-column prop="operator" label="盘点人" width="100" />
             <el-table-column prop="createTime" label="记录时间" width="180" />
-            <el-table-column label="操作" width="150">
+            <el-table-column label="操作" width="220">
               <template #default="{ row }">
-                <el-button type="primary" link size="small">详情</el-button>
+                <el-button type="primary" link size="small" @click="viewCheckDetail(row)">详情</el-button>
+                <el-button v-if="row.diffCount !== 0 && !row.diffHandle" type="warning" link size="small" @click="showDiffHandle(row)">差异处理</el-button>
                 <el-button type="success" link size="small" @click="printCheckReport(row)">打印</el-button>
               </template>
             </el-table-column>
@@ -151,6 +167,82 @@
             <el-table-column prop="avgHeight" label="平均苗高(cm)" width="130" />
             <el-table-column prop="avgDiameter" label="平均地径(cm)" width="130" />
             <el-table-column prop="qualifiedRate" label="合格率(%)" width="110" />
+          </el-table>
+        </div>
+      </el-tab-pane>
+      <el-tab-pane label="年度经营分析" name="analysis">
+        <div class="card-section">
+          <div class="flex-between mb-20">
+            <div class="section-title" style="margin-bottom: 0;">年度经营分析</div>
+            <el-date-picker
+              v-model="analysisYear"
+              type="year"
+              placeholder="选择年份"
+              @change="loadAnalysisData"
+            />
+          </div>
+          <el-row :gutter="20" class="mb-20">
+            <el-col :span="6">
+              <div class="stat-card analysis-stat" style="border-left: 4px solid #409eff;">
+                <div class="label">育苗总量</div>
+                <div class="value" style="color: #409eff;">{{ analysisStats.totalSeedlings }}</div>
+                <div class="unit">株</div>
+              </div>
+            </el-col>
+            <el-col :span="6">
+              <div class="stat-card analysis-stat" style="border-left: 4px solid #67c23a;">
+                <div class="label">出圃总量</div>
+                <div class="value" style="color: #67c23a;">{{ analysisStats.totalOutbound }}</div>
+                <div class="unit">株</div>
+              </div>
+            </el-col>
+            <el-col :span="6">
+              <div class="stat-card analysis-stat" style="border-left: 4px solid #f56c6c;">
+                <div class="label">损耗总量</div>
+                <div class="value" style="color: #f56c6c;">{{ analysisStats.totalLoss }}</div>
+                <div class="unit">株</div>
+              </div>
+            </el-col>
+            <el-col :span="6">
+              <div class="stat-card analysis-stat" style="border-left: 4px solid #e6a23c;">
+                <div class="label">盘点差异</div>
+                <div class="value" style="color: #e6a23c;">{{ analysisStats.totalDiff }}</div>
+                <div class="unit">株</div>
+              </div>
+            </el-col>
+          </el-row>
+          <v-chart class="analysis-chart" :option="analysisChartOption" autoresize />
+        </div>
+        <div class="card-section">
+          <div class="section-title">月度明细统计</div>
+          <el-table :data="monthlyAnalysisData" stripe border style="width: 100%">
+            <el-table-column prop="month" label="月份" width="100" fixed />
+            <el-table-column prop="seedlingCount" label="育苗数量" width="120" />
+            <el-table-column prop="outboundCount" label="出圃数量" width="120" />
+            <el-table-column prop="lossCount" label="损耗数量" width="120" />
+            <el-table-column prop="checkDiff" label="盘点差异" width="120" />
+            <el-table-column label="树种分布" min-width="300">
+              <template #default="{ row }">
+                <el-tag v-for="(item, key) in row.speciesData" :key="key" size="small" style="margin-right: 5px;">
+                  {{ getSpeciesLabel(key) }}: {{ item }}株
+                </el-tag>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+        <div class="card-section">
+          <div class="section-title">分树种龄级统计</div>
+          <el-table :data="speciesAgeAnalysis" stripe border style="width: 100%">
+            <el-table-column prop="species" label="树种" width="120">
+              <template #default="{ row }">{{ getSpeciesLabel(row.species) }}</template>
+            </el-table-column>
+            <el-table-column prop="ageClass" label="龄级" width="100">
+              <template #default="{ row }">{{ getAgeClassLabel(row.ageClass) }}</template>
+            </el-table-column>
+            <el-table-column prop="seedlingCount" label="育苗数量" width="120" />
+            <el-table-column prop="outboundCount" label="出圃数量" width="120" />
+            <el-table-column prop="lossCount" label="损耗数量" width="120" />
+            <el-table-column prop="stockCount" label="当前库存" width="120" />
           </el-table>
         </div>
       </el-tab-pane>
@@ -362,6 +454,16 @@
             <td class="label">差异原因</td>
             <td colspan="3">{{ currentCheckRecord?.remark || '无' }}</td>
           </tr>
+          <tr v-if="currentCheckRecord?.diffHandle">
+            <td class="label">处理方式</td>
+            <td>{{ getDiffHandleLabel(currentCheckRecord.diffHandle.handleType) }}</td>
+            <td class="label">处理人</td>
+            <td>{{ currentCheckRecord.diffHandle.handler }}</td>
+          </tr>
+          <tr v-if="currentCheckRecord?.diffHandle">
+            <td class="label">处理结果</td>
+            <td colspan="3">{{ currentCheckRecord.diffHandle.handleResult }}</td>
+          </tr>
           <tr>
             <td class="label">盘点人</td>
             <td>{{ currentCheckRecord?.operator || '-' }}</td>
@@ -389,13 +491,101 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="showDiffHandleDialog" title="差异处理" width="500px">
+      <el-form :model="diffHandleForm" label-width="100px">
+        <el-form-item label="差异数量">
+          <el-input :value="currentDiffCheck?.diffCount" disabled />
+        </el-form-item>
+        <el-form-item label="处理方式">
+          <el-select v-model="diffHandleForm.handleType" style="width: 100%">
+            <el-option label="正常损耗" value="normal_loss" />
+            <el-option label="补录入库" value="supplementary" />
+            <el-option label="盘亏确认" value="loss_confirm" />
+            <el-option label="人工修正" value="manual_correction" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="处理人">
+          <el-input v-model="diffHandleForm.handler" />
+        </el-form-item>
+        <el-form-item label="处理说明">
+          <el-input v-model="diffHandleForm.handleResult" type="textarea" :rows="3" placeholder="请输入处理说明..." />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showDiffHandleDialog = false">取消</el-button>
+        <el-button type="primary" @click="saveDiffHandle">确认处理</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="showCheckDetail" title="盘点详情" width="700px">
+      <el-descriptions :column="2" border>
+        <el-descriptions-item label="盘点编号">{{ currentCheckRecord?.checkNo }}</el-descriptions-item>
+        <el-descriptions-item label="盘点日期">{{ currentCheckRecord?.checkDate }}</el-descriptions-item>
+        <el-descriptions-item label="树种">{{ getSpeciesLabel(currentCheckRecord?.species) }}</el-descriptions-item>
+        <el-descriptions-item label="龄级">{{ getAgeClassLabel(currentCheckRecord?.ageClass) }}</el-descriptions-item>
+        <el-descriptions-item label="账面数量">{{ currentCheckRecord?.theoreticalCount }} 株</el-descriptions-item>
+        <el-descriptions-item label="实际数量">{{ currentCheckRecord?.actualCount }} 株</el-descriptions-item>
+        <el-descriptions-item label="差异">
+          <span :style="{ color: (currentCheckRecord?.diffCount || 0) >= 0 ? '#67c23a' : '#f56c6c' }">
+            {{ (currentCheckRecord?.diffCount || 0) > 0 ? '+' : '' }}{{ currentCheckRecord?.diffCount || 0 }} 株
+          </span>
+        </el-descriptions-item>
+        <el-descriptions-item label="盘点人">{{ currentCheckRecord?.operator || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="差异原因" :span="2">{{ currentCheckRecord?.remark || '无' }}</el-descriptions-item>
+      </el-descriptions>
+      <el-divider v-if="currentCheckRecord?.diffHandle">差异处理记录</el-divider>
+      <el-descriptions v-if="currentCheckRecord?.diffHandle" :column="2" border>
+        <el-descriptions-item label="处理方式">{{ getDiffHandleLabel(currentCheckRecord.diffHandle.handleType) }}</el-descriptions-item>
+        <el-descriptions-item label="处理人">{{ currentCheckRecord.diffHandle.handler }}</el-descriptions-item>
+        <el-descriptions-item label="处理时间">{{ currentCheckRecord.diffHandle.handleTime }}</el-descriptions-item>
+        <el-descriptions-item label="处理说明" :span="2">{{ currentCheckRecord.diffHandle.handleResult }}</el-descriptions-item>
+      </el-descriptions>
+      <template #footer>
+        <el-button @click="showCheckDetail = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="showRestoreDialog" title="数据恢复" width="500px">
+      <el-alert
+        title="恢复操作将覆盖当前所有数据，请谨慎操作！"
+        type="warning"
+        :closable="false"
+        show-icon
+        class="mb-20"
+      />
+      <el-upload
+        ref="uploadRef"
+        :auto-upload="false"
+        :on-change="handleRestoreFileChange"
+        :show-file-list="true"
+        accept=".json"
+        drag
+      >
+        <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
+        <div class="el-upload__text">
+          将备份文件拖到此处，或<em>点击上传</em>
+        </div>
+        <template #tip>
+          <div class="el-upload__tip">
+            只能上传 .json 格式的备份文件
+          </div>
+        </template>
+      </el-upload>
+      <template #footer>
+        <el-button @click="showRestoreDialog = false">取消</el-button>
+        <el-button type="danger" :disabled="!restoreFile" @click="confirmRestore">
+          确认恢复
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, markRaw } from 'vue'
-import { ElMessage } from 'element-plus'
-import { STORES, getList, addItem } from '@/utils/db'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { STORES, getList, addItem, updateItem, saveList } from '@/utils/db'
 import {
   TREE_SPECIES, AGE_CLASSES,
   getSpeciesLabel, getAgeClassLabel,
@@ -403,7 +593,7 @@ import {
 } from '@/utils/constants'
 import dayjs from 'dayjs'
 import { use } from 'echarts/core'
-import { BarChart } from 'echarts/charts'
+import { BarChart, LineChart } from 'echarts/charts'
 import {
   TitleComponent,
   TooltipComponent,
@@ -415,6 +605,7 @@ import VChart from 'vue-echarts'
 
 use([
   BarChart,
+  LineChart,
   TitleComponent,
   TooltipComponent,
   LegendComponent,
@@ -426,12 +617,28 @@ const activeTab = ref('check')
 const checkRecords = ref([])
 const certificates = ref([])
 const beds = ref([])
+const allocations = ref([])
 
 const showCheckForm = ref(false)
 const showCertificateForm = ref(false)
 const previewVisible = ref(false)
 const currentCert = ref({})
 const selectedYear = ref(new Date())
+const analysisYear = ref(new Date())
+
+const showCheckPreview = ref(false)
+const currentCheckRecord = ref(null)
+const showDiffHandleDialog = ref(false)
+const diffHandleForm = ref({
+  handleType: '',
+  handler: '',
+  handleResult: ''
+})
+const currentDiffCheck = ref(null)
+const showCheckDetail = ref(false)
+
+const showRestoreDialog = ref(false)
+const restoreFile = ref(null)
 
 const queryForm = ref({
   species: '',
@@ -515,6 +722,62 @@ const annualChartOption = computed(() => {
   })
 })
 
+const analysisStats = ref({
+  totalSeedlings: 0,
+  totalOutbound: 0,
+  totalLoss: 0,
+  totalDiff: 0
+})
+
+const monthlyAnalysisData = ref([])
+const speciesAgeAnalysis = ref([])
+
+const analysisChartOption = computed(() => {
+  const months = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月']
+  const seedlingData = monthlyAnalysisData.value.map(m => m.seedlingCount)
+  const outboundData = monthlyAnalysisData.value.map(m => m.outboundCount)
+  const lossData = monthlyAnalysisData.value.map(m => m.lossCount)
+  const diffData = monthlyAnalysisData.value.map(m => m.checkDiff)
+
+  return markRaw({
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['育苗数量', '出圃数量', '损耗数量', '盘点差异'] },
+    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+    xAxis: { type: 'category', data: months },
+    yAxis: { type: 'value' },
+    series: [
+      {
+        name: '育苗数量',
+        type: 'line',
+        smooth: true,
+        data: seedlingData,
+        itemStyle: { color: '#409eff' }
+      },
+      {
+        name: '出圃数量',
+        type: 'line',
+        smooth: true,
+        data: outboundData,
+        itemStyle: { color: '#67c23a' }
+      },
+      {
+        name: '损耗数量',
+        type: 'line',
+        smooth: true,
+        data: lossData,
+        itemStyle: { color: '#f56c6c' }
+      },
+      {
+        name: '盘点差异',
+        type: 'line',
+        smooth: true,
+        data: diffData,
+        itemStyle: { color: '#e6a23c' }
+      }
+    ]
+  })
+})
+
 const checkForm = ref({
   checkNo: '',
   checkDate: '',
@@ -545,6 +808,8 @@ const loadData = async () => {
   checkRecords.value = await getList(STORES.INVENTORY_CHECK)
   certificates.value = await getList(STORES.CERTIFICATES)
   beds.value = await getList(STORES.SEEDLING_BEDS)
+  allocations.value = await getList(STORES.ALLOCATIONS)
+  loadAnalysisData()
 }
 
 const loadCheckRecords = () => {
@@ -581,9 +846,6 @@ const saveCheckRecord = async () => {
   showCheckForm.value = false
   loadData()
 }
-
-const showCheckPreview = ref(false)
-const currentCheckRecord = ref(null)
 
 const saveCertificate = async () => {
   const saveData = { ...certForm.value }
@@ -710,6 +972,246 @@ const loadAnnualData = () => {
   ElMessage.info('年度数据已更新')
 }
 
+const getStatusLabel = (status) => {
+  const map = {
+    pending: '待审核',
+    approved: '已通过',
+    rejected: '已驳回',
+    completed: '已完成'
+  }
+  return map[status] || status
+}
+
+const getDiffHandleLabel = (type) => {
+  const map = {
+    normal_loss: '正常损耗',
+    supplementary: '补录入库',
+    loss_confirm: '盘亏确认',
+    manual_correction: '人工修正'
+  }
+  return map[type] || type
+}
+
+const showDiffHandle = (row) => {
+  currentDiffCheck.value = row
+  diffHandleForm.value = {
+    handleType: '',
+    handler: '',
+    handleResult: ''
+  }
+  showDiffHandleDialog.value = true
+}
+
+const saveDiffHandle = async () => {
+  if (!diffHandleForm.value.handleType) {
+    ElMessage.warning('请选择处理方式')
+    return
+  }
+  if (!diffHandleForm.value.handler) {
+    ElMessage.warning('请输入处理人')
+    return
+  }
+  const updateData = {
+    diffHandle: {
+      ...diffHandleForm.value,
+      handleTime: dayjs().format('YYYY-MM-DD HH:mm:ss')
+    },
+    diffHandled: true
+  }
+  await updateItem(STORES.INVENTORY_CHECK, currentDiffCheck.value.id, updateData)
+  ElMessage.success('差异处理记录保存成功')
+  showDiffHandleDialog.value = false
+  loadData()
+}
+
+const viewCheckDetail = (row) => {
+  currentCheckRecord.value = row
+  showCheckDetail.value = true
+}
+
+const loadAnalysisData = () => {
+  const year = dayjs(analysisYear.value).year()
+  const months = 12
+
+  const monthlyData = []
+  for (let i = 1; i <= months; i++) {
+    monthlyData.push({
+      month: `${i}月`,
+      seedlingCount: 0,
+      outboundCount: 0,
+      lossCount: 0,
+      checkDiff: 0,
+      speciesData: {}
+    })
+  }
+
+  beds.value.forEach(bed => {
+    if (bed.createTime) {
+      const bedYear = dayjs(bed.createTime).year()
+      if (bedYear === year) {
+        const month = dayjs(bed.createTime).month()
+        monthlyData[month].seedlingCount += bed.seedlingCount
+        if (bed.species) {
+          if (!monthlyData[month].speciesData[bed.species]) {
+            monthlyData[month].speciesData[bed.species] = 0
+          }
+          monthlyData[month].speciesData[bed.species] += bed.seedlingCount
+        }
+      }
+    }
+  })
+
+  allocations.value.forEach(alloc => {
+    if (alloc.createTime) {
+      const allocYear = dayjs(alloc.createTime).year()
+      if (allocYear === year) {
+        const month = dayjs(alloc.createTime).month()
+        monthlyData[month].outboundCount += alloc.quantity || 0
+        if (alloc.lossCount) {
+          monthlyData[month].lossCount += alloc.lossCount
+        }
+      }
+    }
+  })
+
+  checkRecords.value.forEach(check => {
+    if (check.checkDate) {
+      const checkYear = dayjs(check.checkDate).year()
+      if (checkYear === year) {
+        const month = dayjs(check.checkDate).month()
+        monthlyData[month].checkDiff += Math.abs(check.diffCount || 0)
+      }
+    }
+  })
+
+  monthlyAnalysisData.value = monthlyData
+
+  analysisStats.value = {
+    totalSeedlings: monthlyData.reduce((sum, m) => sum + m.seedlingCount, 0),
+    totalOutbound: monthlyData.reduce((sum, m) => sum + m.outboundCount, 0),
+    totalLoss: monthlyData.reduce((sum, m) => sum + m.lossCount, 0),
+    totalDiff: monthlyData.reduce((sum, m) => sum + m.checkDiff, 0)
+  }
+
+  const speciesAgeMap = {}
+  beds.value.forEach(bed => {
+    if (bed.species && bed.ageClass) {
+      const key = `${bed.species}_${bed.ageClass}`
+      if (!speciesAgeMap[key]) {
+        speciesAgeMap[key] = {
+          species: bed.species,
+          ageClass: bed.ageClass,
+          seedlingCount: 0,
+          outboundCount: 0,
+          lossCount: 0,
+          stockCount: 0
+        }
+      }
+      speciesAgeMap[key].seedlingCount += bed.seedlingCount
+      speciesAgeMap[key].stockCount += bed.seedlingCount
+    }
+  })
+
+  allocations.value.forEach(alloc => {
+    if (alloc.species && alloc.ageClass) {
+      const key = `${alloc.species}_${alloc.ageClass}`
+      if (!speciesAgeMap[key]) {
+        speciesAgeMap[key] = {
+          species: alloc.species,
+          ageClass: alloc.ageClass,
+          seedlingCount: 0,
+          outboundCount: 0,
+          lossCount: 0,
+          stockCount: 0
+        }
+      }
+      speciesAgeMap[key].outboundCount += alloc.quantity || 0
+      speciesAgeMap[key].lossCount += alloc.lossCount || 0
+    }
+  })
+
+  speciesAgeAnalysis.value = Object.values(speciesAgeMap)
+}
+
+const exportBackup = async () => {
+  try {
+    const backupData = {}
+    const stores = Object.values(STORES)
+    for (const store of stores) {
+      backupData[store] = await getList(store)
+    }
+    backupData._backupInfo = {
+      exportTime: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+      version: '1.0.0'
+    }
+
+    const jsonStr = JSON.stringify(backupData, null, 2)
+    const blob = new Blob([jsonStr], { type: 'application/json' })
+    const link = document.createElement('a')
+    const url = URL.createObjectURL(blob)
+    link.setAttribute('href', url)
+    link.setAttribute('download', `苗圃数据备份_${dayjs().format('YYYYMMDD_HHmmss')}.json`)
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    ElMessage.success('数据备份成功！')
+  } catch (error) {
+    console.error('备份失败:', error)
+    ElMessage.error('备份失败，请重试')
+  }
+}
+
+const handleRestoreFileChange = (file) => {
+  restoreFile.value = file.raw
+}
+
+const confirmRestore = async () => {
+  if (!restoreFile.value) return
+
+  try {
+    await ElMessageBox.confirm(
+      '恢复操作将覆盖当前所有数据，建议先备份当前数据。确定要继续吗？',
+      '数据恢复确认',
+      {
+        confirmButtonText: '确认恢复',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+
+    const reader = new FileReader()
+    reader.onload = async (e) => {
+      try {
+        const backupData = JSON.parse(e.target.result)
+
+        for (const storeKey of Object.keys(backupData)) {
+          if (storeKey === '_backupInfo') continue
+          if (Object.values(STORES).includes(storeKey)) {
+            await saveList(storeKey, backupData[storeKey])
+          }
+        }
+
+        ElMessage.success('数据恢复成功！请刷新页面。')
+        showRestoreDialog.value = false
+        restoreFile.value = null
+        setTimeout(() => {
+          window.location.reload()
+        }, 1000)
+      } catch (parseError) {
+        console.error('解析备份文件失败:', parseError)
+        ElMessage.error('备份文件格式错误，请检查文件')
+      }
+    }
+    reader.readAsText(restoreFile.value)
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('恢复失败:', error)
+      ElMessage.error('恢复失败，请重试')
+    }
+  }
+}
+
 const exportAnnualReport = async () => {
   const year = dayjs(selectedYear.value).year()
   const bedsData = await getList(STORES.SEEDLING_BEDS)
@@ -780,16 +1282,6 @@ const exportAnnualReport = async () => {
   ElMessage.success('年度报表导出成功！')
 }
 
-const getStatusLabel = (status) => {
-  const map = {
-    pending: '待审核',
-    approved: '已通过',
-    rejected: '已驳回',
-    completed: '已完成'
-  }
-  return map[status] || status
-}
-
 onMounted(() => {
   loadData()
   checkForm.value.checkNo = generateBatchNo('PD')
@@ -811,7 +1303,12 @@ onMounted(() => {
 .annual-chart {
   height: 350px;
 }
-
+.analysis-chart {
+  height: 400px;
+}
+.analysis-stat {
+  padding: 15px;
+}
 .certificate-preview {
   background: #fff;
   padding: 30px;
@@ -935,5 +1432,22 @@ onMounted(() => {
 .sign-item p {
   margin: 5px 0;
   color: #606266;
+}
+
+.mb-20 {
+  margin-bottom: 20px;
+}
+
+.flex-between {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #303133;
+  margin-bottom: 15px;
 }
 </style>
