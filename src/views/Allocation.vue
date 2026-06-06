@@ -59,6 +59,7 @@
                 <el-option label="运输中" value="transporting" />
                 <el-option label="已完成" value="completed" />
                 <el-option label="异常" value="abnormal" />
+                <el-option label="已取消" value="cancelled" />
               </el-select>
             </el-form-item>
             <el-form-item label="树种">
@@ -90,7 +91,7 @@
         <div class="card-section">
           <el-table :data="filteredAllocations" stripe border style="width: 100%">
             <el-table-column prop="allocationNo" label="调拨单号" width="160" />
-            <el-table-column prop="outboundRequestNo" label="出圃申请号" width="160" v-if="false">
+            <el-table-column prop="outboundRequestNo" label="出圃申请号" width="160">
               <template #default="{ row }">
                 <span v-if="row.outboundRequestNo" style="color: #409eff;">{{ row.outboundRequestNo }}</span>
                 <span v-else style="color: #909399;">-</span>
@@ -121,6 +122,7 @@
                 <el-tag v-else-if="row.status === 'transporting'" type="primary">运输中</el-tag>
                 <el-tag v-else-if="row.status === 'completed'" type="success">已完成</el-tag>
                 <el-tag v-else-if="row.status === 'abnormal'" type="danger">异常</el-tag>
+                <el-tag v-else-if="row.status === 'cancelled'" type="info">已取消</el-tag>
               </template>
             </el-table-column>
             <el-table-column prop="lossCount" label="损耗(株)" width="90">
@@ -131,12 +133,13 @@
                 <span v-else>0</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="260" fixed="right">
+            <el-table-column label="操作" width="300" fixed="right">
               <template #default="{ row }">
                 <el-button type="primary" link size="small" @click="viewAllocationDetail(row)">详情</el-button>
                 <el-button v-if="row.status === 'pending'" type="success" link size="small" @click="startTransport(row)">发运</el-button>
                 <el-button v-if="row.status === 'transporting'" type="warning" link size="small" @click="completeAllocation(row)">完成</el-button>
                 <el-button v-if="row.status === 'transporting'" type="danger" link size="small" @click="reportAbnormal(row)">异常</el-button>
+                <el-button v-if="row.status === 'abnormal'" type="success" link size="small" @click="handleAbnormal(row)">处理</el-button>
                 <el-button type="info" link size="small" @click="viewFlowLog(row)">流转记录</el-button>
               </template>
             </el-table-column>
@@ -159,17 +162,46 @@
             <el-table-column prop="quantity" label="数量(株)" width="100" />
             <el-table-column prop="purpose" label="用途" width="100" />
             <el-table-column prop="plotNo" label="造林地块" width="120" />
-            <el-table-column prop="status" label="状态" width="90">
+            <el-table-column prop="status" label="申请状态" width="90">
               <template #default="{ row }">
                 <el-tag :type="getRequestStatusTag(row.status).type">
                   {{ getRequestStatusTag(row.status).label }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="allocationNo" label="关联调拨单" width="160">
+            <el-table-column prop="allocationNo" label="关联调拨单" width="140">
               <template #default="{ row }">
-                <span v-if="row.allocationNo" style="color: #409eff;">{{ row.allocationNo }}</span>
+                <span v-if="row.allocationNo" style="color: #409eff; cursor: pointer;" @click="viewAllocationByNo(row.allocationNo)">{{ row.allocationNo }}</span>
                 <span v-else style="color: #909399;">未生成</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="调拨状态" width="100">
+              <template #default="{ row }">
+                <el-tag v-if="row.allocationStatus === 'pending'" type="warning" size="small">待运输</el-tag>
+                <el-tag v-else-if="row.allocationStatus === 'transporting'" type="primary" size="small">运输中</el-tag>
+                <el-tag v-else-if="row.allocationStatus === 'completed'" type="success" size="small">已完成</el-tag>
+                <el-tag v-else-if="row.allocationStatus === 'abnormal'" type="danger" size="small">异常</el-tag>
+                <el-tag v-else-if="row.allocationStatus === 'cancelled'" type="info" size="small">已取消</el-tag>
+                <span v-else style="color: #909399;">-</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="arrivedCount" label="实到数量" width="90">
+              <template #default="{ row }">
+                <span v-if="row.arrivedCount !== undefined && row.arrivedCount !== null">{{ row.arrivedCount }}</span>
+                <span v-else style="color: #909399;">-</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="lossCount" label="损耗数量" width="90">
+              <template #default="{ row }">
+                <span v-if="row.lossCount > 0" style="color: #f56c6c;">{{ row.lossCount }}</span>
+                <span v-else-if="row.lossCount === 0 && row.allocationStatus === 'completed'">0</span>
+                <span v-else style="color: #909399;">-</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="completeTime" label="完成时间" width="160">
+              <template #default="{ row }">
+                <span v-if="row.completeTime">{{ row.completeTime }}</span>
+                <span v-else style="color: #909399;">-</span>
               </template>
             </el-table-column>
             <el-table-column label="操作" width="200" fixed="right">
@@ -186,7 +218,7 @@
                 <el-button v-if="row.allocationNo" type="primary" link size="small" @click="viewAllocationByNo(row.allocationNo)">
                   查看调拨
                 </el-button>
-                <el-button type="info" link size="small">详情</el-button>
+                <el-button type="info" link size="small" @click="viewOutboundDetail(row)">详情</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -392,13 +424,147 @@
         <el-form-item label="处理人">
           <el-input v-model="abnormalForm.handler" />
         </el-form-item>
-        <el-form-item label="处理结果">
-          <el-input v-model="abnormalForm.handleResult" type="textarea" :rows="2" placeholder="请填写处理措施和结果" />
-        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="abnormalVisible = false">取消</el-button>
         <el-button type="primary" @click="confirmAbnormal">确认登记</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 异常处理 -->
+    <el-dialog v-model="handleAbnormalVisible" title="异常处理" width="600px">
+      <el-descriptions :column="2" border size="small" class="mb-20">
+        <el-descriptions-item label="调拨单号">{{ currentAbnormal?.allocationNo }}</el-descriptions-item>
+        <el-descriptions-item label="异常原因">{{ currentAbnormal?.abnormalReason }}</el-descriptions-item>
+        <el-descriptions-item label="树种">{{ getSpeciesLabel(currentAbnormal?.species) }}</el-descriptions-item>
+        <el-descriptions-item label="调拨数量">{{ currentAbnormal?.quantity }} 株</el-descriptions-item>
+        <el-descriptions-item label="异常描述" :span="2">{{ currentAbnormal?.abnormalDesc }}</el-descriptions-item>
+      </el-descriptions>
+      <el-form :model="handleAbnormalForm" label-width="110px">
+        <el-form-item label="处理方式">
+          <el-radio-group v-model="handleAbnormalForm.handleType">
+            <el-radio label="continue">继续运输</el-radio>
+            <el-radio label="partial">部分完成</el-radio>
+            <el-radio label="cancel">取消调拨</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <template v-if="handleAbnormalForm.handleType === 'partial'">
+          <el-form-item label="实际到达数量">
+            <el-input-number v-model="handleAbnormalForm.arrivedCount" :min="0" :max="currentAbnormal?.quantity || 0" style="width: 100%" @change="onPartialArrivedChange" />
+          </el-form-item>
+          <el-form-item label="损耗数量">
+            <el-input-number v-model="handleAbnormalForm.lossCount" :min="0" :max="currentAbnormal?.quantity || 0" style="width: 100%" @change="onPartialLossChange" />
+          </el-form-item>
+          <el-form-item label="损耗原因">
+            <el-select v-model="handleAbnormalForm.lossReason" style="width: 100%">
+              <el-option label="机械损伤" value="机械损伤" />
+              <el-option label="高温脱水" value="高温脱水" />
+              <el-option label="冻害" value="冻害" />
+              <el-option label="病虫害" value="病虫害" />
+              <el-option label="丢失" value="丢失" />
+              <el-option label="其他原因" value="其他原因" />
+            </el-select>
+          </el-form-item>
+        </template>
+        <el-form-item label="处理说明">
+          <el-input v-model="handleAbnormalForm.handleResult" type="textarea" :rows="2" placeholder="请填写处理说明" />
+        </el-form-item>
+        <el-form-item label="处理人">
+          <el-input v-model="handleAbnormalForm.handler" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="handleAbnormalVisible = false">取消</el-button>
+        <el-button type="primary" @click="confirmHandleAbnormal">确认处理</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 出圃申请详情 -->
+    <el-dialog v-model="showOutboundDetail" title="出圃申请详情" width="700px">
+      <el-descriptions :column="2" border>
+        <el-descriptions-item label="申请单号">{{ currentOutbound?.requestNo }}</el-descriptions-item>
+        <el-descriptions-item label="申请日期">{{ currentOutbound?.applyDate }}</el-descriptions-item>
+        <el-descriptions-item label="申请人">{{ currentOutbound?.applicant }}</el-descriptions-item>
+        <el-descriptions-item label="申请状态">
+          <el-tag :type="getRequestStatusTag(currentOutbound?.status).type">
+            {{ getRequestStatusTag(currentOutbound?.status).label }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="树种">{{ getSpeciesLabel(currentOutbound?.species) }}</el-descriptions-item>
+        <el-descriptions-item label="龄级">{{ getAgeClassLabel(currentOutbound?.ageClass) }}</el-descriptions-item>
+        <el-descriptions-item label="申请数量">{{ currentOutbound?.quantity }} 株</el-descriptions-item>
+        <el-descriptions-item label="造林地块">{{ currentOutbound?.plotNo }}</el-descriptions-item>
+        <el-descriptions-item label="用途">{{ currentOutbound?.purpose }}</el-descriptions-item>
+        <el-descriptions-item label="备注" :span="2">{{ currentOutbound?.remark || '无' }}</el-descriptions-item>
+      </el-descriptions>
+      <el-divider v-if="currentOutbound?.allocationNo">调拨执行情况</el-divider>
+      <el-descriptions v-if="currentOutbound?.allocationNo" :column="2" border>
+        <el-descriptions-item label="关联调拨单">{{ currentOutbound?.allocationNo }}</el-descriptions-item>
+        <el-descriptions-item label="调拨状态">
+          <el-tag v-if="currentOutbound?.allocationStatus === 'pending'" type="warning">待运输</el-tag>
+          <el-tag v-else-if="currentOutbound?.allocationStatus === 'transporting'" type="primary">运输中</el-tag>
+          <el-tag v-else-if="currentOutbound?.allocationStatus === 'completed'" type="success">已完成</el-tag>
+          <el-tag v-else-if="currentOutbound?.allocationStatus === 'abnormal'" type="danger">异常</el-tag>
+          <el-tag v-else-if="currentOutbound?.allocationStatus === 'cancelled'" type="info">已取消</el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="实到数量">{{ currentOutbound?.arrivedCount !== undefined && currentOutbound?.arrivedCount !== null ? currentOutbound.arrivedCount + ' 株' : '-' }}</el-descriptions-item>
+        <el-descriptions-item label="损耗数量">
+          <span v-if="currentOutbound?.lossCount > 0" style="color: #f56c6c;">{{ currentOutbound.lossCount }} 株</span>
+          <span v-else-if="currentOutbound?.allocationStatus === 'completed'">0 株</span>
+          <span v-else>-</span>
+        </el-descriptions-item>
+        <el-descriptions-item label="完成时间" :span="2">{{ currentOutbound?.completeTime || '-' }}</el-descriptions-item>
+      </el-descriptions>
+      <template #footer>
+        <el-button @click="showOutboundDetail = false">关闭</el-button>
+        <el-button v-if="currentOutbound?.allocationNo" type="primary" @click="viewAllocationByNo(currentOutbound.allocationNo); showOutboundDetail = false">
+          查看调拨单
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 调拨单详情 -->
+    <el-dialog v-model="showAllocationDetail" title="调拨单详情" width="700px">
+      <el-descriptions :column="2" border>
+        <el-descriptions-item label="调拨单号">{{ currentAllocationDetail?.allocationNo }}</el-descriptions-item>
+        <el-descriptions-item label="调拨日期">{{ currentAllocationDetail?.allocationDate }}</el-descriptions-item>
+        <el-descriptions-item label="树种">{{ getSpeciesLabel(currentAllocationDetail?.species) }}</el-descriptions-item>
+        <el-descriptions-item label="龄级">{{ getAgeClassLabel(currentAllocationDetail?.ageClass) }}</el-descriptions-item>
+        <el-descriptions-item label="调拨数量">{{ currentAllocationDetail?.quantity }} 株</el-descriptions-item>
+        <el-descriptions-item label="调出地点">{{ currentAllocationDetail?.fromLocation }}</el-descriptions-item>
+        <el-descriptions-item label="调入地块">{{ currentAllocationDetail?.toPlot }}</el-descriptions-item>
+        <el-descriptions-item label="运输负责人">{{ currentAllocationDetail?.transporter || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="状态">
+          <el-tag v-if="currentAllocationDetail?.status === 'pending'" type="warning">待运输</el-tag>
+          <el-tag v-else-if="currentAllocationDetail?.status === 'transporting'" type="primary">运输中</el-tag>
+          <el-tag v-else-if="currentAllocationDetail?.status === 'completed'" type="success">已完成</el-tag>
+          <el-tag v-else-if="currentAllocationDetail?.status === 'abnormal'" type="danger">异常</el-tag>
+          <el-tag v-else-if="currentAllocationDetail?.status === 'cancelled'" type="info">已取消</el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="实到数量" v-if="currentAllocationDetail?.status === 'completed' || currentAllocationDetail?.arrivedCount !== null">
+          {{ currentAllocationDetail?.arrivedCount !== undefined && currentAllocationDetail?.arrivedCount !== null ? currentAllocationDetail.arrivedCount + ' 株' : '-' }}
+        </el-descriptions-item>
+        <el-descriptions-item label="损耗数量" v-if="currentAllocationDetail?.status === 'completed' || currentAllocationDetail?.lossCount > 0">
+          <span v-if="currentAllocationDetail?.lossCount > 0" style="color: #f56c6c;">{{ currentAllocationDetail.lossCount }} 株</span>
+          <span v-else-if="currentAllocationDetail?.status === 'completed'">0 株</span>
+          <span v-else>-</span>
+        </el-descriptions-item>
+        <el-descriptions-item label="损耗原因" v-if="currentAllocationDetail?.lossReason">
+          {{ currentAllocationDetail.lossReason }}
+        </el-descriptions-item>
+        <el-descriptions-item label="异常原因" v-if="currentAllocationDetail?.abnormalReason" :span="2">
+          <span style="color: #f56c6c;">【{{ currentAllocationDetail.abnormalReason }}】{{ currentAllocationDetail.abnormalDesc }}</span>
+        </el-descriptions-item>
+        <el-descriptions-item label="关联出圃申请" v-if="currentAllocationDetail?.outboundRequestNo">
+          {{ currentAllocationDetail.outboundRequestNo }}
+        </el-descriptions-item>
+        <el-descriptions-item label="备注" :span="2">{{ currentAllocationDetail?.remark || '无' }}</el-descriptions-item>
+      </el-descriptions>
+      <template #footer>
+        <el-button @click="showAllocationDetail = false">关闭</el-button>
+        <el-button type="primary" @click="showAllocationDetail = false; viewFlowLog(currentAllocationDetail)">
+          查看流转记录
+        </el-button>
       </template>
     </el-dialog>
 
@@ -653,10 +819,16 @@ const showReceiveForm = ref(false)
 const showPlotForm = ref(false)
 const completeVisible = ref(false)
 const abnormalVisible = ref(false)
+const handleAbnormalVisible = ref(false)
 const showSelectAllocation = ref(false)
 const showTransportPreview = ref(false)
 const showFlowLog = ref(false)
+const showOutboundDetail = ref(false)
+const showAllocationDetail = ref(false)
 const currentAllocation = ref(null)
+const currentAbnormal = ref(null)
+const currentOutbound = ref(null)
+const currentAllocationDetail = ref(null)
 const transportData = ref({})
 const currentFlowLogs = ref([])
 
@@ -730,6 +902,15 @@ const abnormalForm = ref({
   handleResult: ''
 })
 
+const handleAbnormalForm = ref({
+  handleType: 'continue',
+  arrivedCount: 0,
+  lossCount: 0,
+  lossReason: '',
+  handleResult: '',
+  handler: ''
+})
+
 const receiveForm = ref({
   receiveNo: '',
   receiver: '',
@@ -767,29 +948,39 @@ const loadAllocationOrders = async () => {
   allocationOrders.value = await getList(STORES.ALLOCATION_ORDERS)
 }
 
+const updateOutboundFromAllocation = async (allocation) => {
+  if (!allocation.outboundRequestId) return
+  const updateData = {
+    allocationStatus: allocation.status
+  }
+  if (allocation.status === 'completed') {
+    updateData.arrivedCount = allocation.arrivedCount
+    updateData.lossCount = allocation.lossCount
+    updateData.completeTime = dayjs().format('YYYY-MM-DD HH:mm:ss')
+  }
+  if (allocation.status === 'cancelled') {
+    updateData.arrivedCount = 0
+    updateData.lossCount = 0
+    updateData.completeTime = dayjs().format('YYYY-MM-DD HH:mm:ss')
+  }
+  await updateItem(STORES.OUTBOUND_REQUESTS, allocation.outboundRequestId, updateData)
+}
+
 const loadData = async () => {
   await loadAllocationOrders()
   outboundRequests.value = await getList(STORES.OUTBOUND_REQUESTS)
   receiveRecords.value = await getList(STORES.RECEIVE_RECORDS)
   plots.value = await getList(STORES.PLOTS)
   materials.value = await getList(STORES.MATERIALS)
-  lossRecords.value = await getList(STORES.ALLOCATION_ORDERS).then(all => {
-    const losses = []
-    all.forEach(a => {
-      if (a.lossCount > 0) {
-        losses.push({
-          lossNo: `SH${a.allocationNo.slice(-8)}`,
-          allocationNo: a.allocationNo,
-          species: a.species,
-          lossCount: a.lossCount,
-          lossReason: a.lossReason || '未记录',
-          recordDate: a.allocationDate,
-          handler: a.transporter || '-'
-        })
-      }
-    })
-    return losses
-  })
+  lossRecords.value = allocationOrders.value.filter(a => a.lossCount > 0).map(a => ({
+    lossNo: `SH${a.allocationNo.slice(-8)}`,
+    allocationNo: a.allocationNo,
+    species: a.species,
+    lossCount: a.lossCount,
+    lossReason: a.lossReason || '未记录',
+    recordDate: a.allocationDate,
+    handler: a.transporter || '-'
+  }))
 }
 
 const resetAllocationQuery = () => {
@@ -834,10 +1025,12 @@ const startTransport = async (row) => {
     type: 'primary',
     color: '#409eff'
   })
-  await updateItem(STORES.ALLOCATION_ORDERS, row.id, {
+  const updateData = {
     status: 'transporting',
     flowLogs
-  })
+  }
+  await updateItem(STORES.ALLOCATION_ORDERS, row.id, updateData)
+  await updateOutboundFromAllocation({ ...row, ...updateData })
   ElMessage.success('已开始运输')
   loadData()
 }
@@ -878,27 +1071,17 @@ const confirmComplete = async () => {
     type: 'success',
     color: '#67c23a'
   })
-  await updateItem(STORES.ALLOCATION_ORDERS, completeForm.value.id, {
+  const updateData = {
     status: 'completed',
     arrivedCount: completeForm.value.arrivedCount,
     lossCount: completeForm.value.lossCount,
     lossReason: completeForm.value.lossReason,
     remark: completeForm.value.remark,
-    flowLogs
-  })
-  if (completeForm.value.lossCount > 0) {
-    const lossRecord = {
-      id: generateId(),
-      lossNo: generateBatchNo('SH'),
-      allocationNo: completeForm.value.allocationNo,
-      species: currentAllocation.value.species,
-      lossCount: completeForm.value.lossCount,
-      lossReason: completeForm.value.lossReason,
-      recordDate: dayjs().format('YYYY-MM-DD'),
-      handler: '管理员'
-    }
-    const losses = await getList(STORES.ALLOCATION_ORDERS)
+    flowLogs,
+    completeTime: dayjs().format('YYYY-MM-DD HH:mm:ss')
   }
+  await updateItem(STORES.ALLOCATION_ORDERS, completeForm.value.id, updateData)
+  await updateOutboundFromAllocation({ ...currentAllocation.value, ...updateData })
   ElMessage.success('调拨完成')
   completeVisible.value = false
   loadData()
@@ -931,31 +1114,113 @@ const confirmAbnormal = async () => {
     type: 'danger',
     color: '#f56c6c'
   })
-  if (abnormalForm.value.handleResult) {
-    flowLogs.push({
-      time: dayjs().format('YYYY-MM-DD HH:mm:ss'),
-      title: '异常处理',
-      content: abnormalForm.value.handleResult,
-      operator: abnormalForm.value.handler || '管理员',
-      type: 'warning',
-      color: '#e6a23c'
-    })
-  }
-  await updateItem(STORES.ALLOCATION_ORDERS, abnormalForm.value.id, {
+  const updateData = {
     status: 'abnormal',
     abnormalReason: abnormalForm.value.abnormalReason,
     abnormalDesc: abnormalForm.value.abnormalDesc,
     abnormalHandler: abnormalForm.value.handler,
-    handleResult: abnormalForm.value.handleResult,
     flowLogs
-  })
+  }
+  await updateItem(STORES.ALLOCATION_ORDERS, abnormalForm.value.id, updateData)
+  await updateOutboundFromAllocation({ ...currentAllocation.value, ...updateData })
   ElMessage.success('异常已登记')
   abnormalVisible.value = false
   loadData()
 }
 
+const handleAbnormal = (row) => {
+  currentAbnormal.value = row
+  handleAbnormalForm.value = {
+    handleType: 'continue',
+    arrivedCount: row.quantity,
+    lossCount: 0,
+    lossReason: '',
+    handleResult: '',
+    handler: ''
+  }
+  handleAbnormalVisible.value = true
+}
+
+const onPartialArrivedChange = (val) => {
+  handleAbnormalForm.value.lossCount = (currentAbnormal.value?.quantity || 0) - val
+}
+
+const onPartialLossChange = (val) => {
+  handleAbnormalForm.value.arrivedCount = (currentAbnormal.value?.quantity || 0) - val
+}
+
+const confirmHandleAbnormal = async () => {
+  const flowLogs = currentAbnormal.value.flowLogs || []
+  let updateData = {}
+  let newStatus = ''
+
+  if (handleAbnormalForm.value.handleType === 'continue') {
+    newStatus = 'transporting'
+    flowLogs.push({
+      time: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+      title: '异常处理-继续运输',
+      content: `异常已排除，继续运输。${handleAbnormalForm.value.handleResult || ''}`,
+      operator: handleAbnormalForm.value.handler || '管理员',
+      type: 'primary',
+      color: '#409eff'
+    })
+    updateData = {
+      status: newStatus,
+      flowLogs
+    }
+  } else if (handleAbnormalForm.value.handleType === 'partial') {
+    if (!handleAbnormalForm.value.lossReason && handleAbnormalForm.value.lossCount > 0) {
+      ElMessage.warning('存在损耗时请填写损耗原因')
+      return
+    }
+    newStatus = 'completed'
+    flowLogs.push({
+      time: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+      title: '异常处理-部分完成',
+      content: `异常后部分完成，实到${handleAbnormalForm.value.arrivedCount}株，损耗${handleAbnormalForm.value.lossCount}株${handleAbnormalForm.value.lossReason ? `（${handleAbnormalForm.value.lossReason}）` : ''}。${handleAbnormalForm.value.handleResult || ''}`,
+      operator: handleAbnormalForm.value.handler || '管理员',
+      type: 'warning',
+      color: '#e6a23c'
+    })
+    updateData = {
+      status: newStatus,
+      arrivedCount: handleAbnormalForm.value.arrivedCount,
+      lossCount: handleAbnormalForm.value.lossCount,
+      lossReason: handleAbnormalForm.value.lossReason,
+      completeTime: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+      flowLogs
+    }
+  } else if (handleAbnormalForm.value.handleType === 'cancel') {
+    newStatus = 'cancelled'
+    flowLogs.push({
+      time: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+      title: '异常处理-取消调拨',
+      content: `因异常取消调拨。${handleAbnormalForm.value.handleResult || ''}`,
+      operator: handleAbnormalForm.value.handler || '管理员',
+      type: 'info',
+      color: '#909399'
+    })
+    updateData = {
+      status: newStatus,
+      flowLogs
+    }
+  }
+
+  await updateItem(STORES.ALLOCATION_ORDERS, currentAbnormal.value.id, updateData)
+  await updateOutboundFromAllocation({ ...currentAbnormal.value, ...updateData })
+  ElMessage.success('异常处理完成')
+  handleAbnormalVisible.value = false
+  loadData()
+}
+
 const viewAllocationDetail = (row) => {
-  ElMessage.info('详情功能开发中')
+  currentAllocationDetail.value = row
+  showAllocationDetail.value = true
+}
+
+const viewOutboundDetail = (row) => {
+  currentOutbound.value = row
+  showOutboundDetail.value = true
 }
 
 const viewFlowLog = (row) => {
@@ -1023,165 +1288,4 @@ const generateAllocationFromOutbound = async (row) => {
       '生成确认',
       { type: 'info' }
     )
-    const newAllocation = {
-      id: generateId(),
-      allocationNo: generateBatchNo('DB'),
-      outboundRequestId: row.id,
-      outboundRequestNo: row.requestNo,
-      species: row.species,
-      ageClass: row.ageClass,
-      quantity: row.quantity,
-      fromLocation: '中心苗圃',
-      toPlot: row.plotNo,
-      allocationDate: dayjs().format('YYYY-MM-DD'),
-      transporter: '',
-      phone: '',
-      status: 'pending',
-      arrivedCount: null,
-      lossCount: 0,
-      lossReason: null,
-      remark: row.remark || '',
-      purpose: row.purpose,
-      flowLogs: [{
-        time: dayjs().format('YYYY-MM-DD HH:mm:ss'),
-        title: '由出圃申请生成',
-        content: `关联出圃申请：${row.requestNo}`,
-        operator: '管理员',
-        type: 'primary',
-        color: '#409eff'
-      }],
-      createTime: dayjs().format('YYYY-MM-DD HH:mm:ss')
-    }
-    await addItem(STORES.ALLOCATION_ORDERS, newAllocation)
-    await updateItem(STORES.OUTBOUND_REQUESTS, row.id, {
-      allocationNo: newAllocation.allocationNo,
-      allocationId: newAllocation.id,
-      allocationStatus: 'pending'
-    })
-    ElMessage.success('调拨单生成成功')
-    loadData()
-  } catch (e) {}
-}
-
-const viewAllocationByNo = (allocationNo) => {
-  const target = allocationOrders.value.find(a => a.allocationNo === allocationNo)
-  if (target) {
-    viewAllocationDetail(target)
-  }
-}
-
-const onReceiveMaterialChange = (materialId) => {
-  const material = materials.value.find(m => m.id === materialId)
-  if (material) {
-    receiveForm.value.materialName = material.name
-    receiveForm.value.materialType = material.type
-    receiveForm.value.unit = material.unit
-  }
-}
-
-const saveReceive = async () => {
-  const newRecord = {
-    ...receiveForm.value,
-    id: generateId(),
-    createTime: dayjs().format('YYYY-MM-DD HH:mm:ss')
-  }
-  await addItem(STORES.RECEIVE_RECORDS, newRecord)
-  const material = materials.value.find(m => m.id === receiveForm.value.materialId)
-  if (material) {
-    await updateItem(STORES.MATERIALS, material.id, { stock: Math.max(0, material.stock - receiveForm.value.quantity) })
-  }
-  ElMessage.success('领用登记成功')
-  showReceiveForm.value = false
-  loadData()
-  receiveForm.value.receiveNo = generateBatchNo('LY')
-}
-
-const savePlot = async () => {
-  const newPlot = {
-    ...plotForm.value,
-    id: generateId()
-  }
-  await addItem(STORES.PLOTS, newPlot)
-  ElMessage.success('地块添加成功')
-  showPlotForm.value = false
-  loadData()
-}
-
-onMounted(async () => {
-  await loadData()
-  allocationForm.value.allocationNo = generateBatchNo('DB')
-  receiveForm.value.receiveNo = generateBatchNo('LY')
-  allocationForm.value.allocationDate = dayjs().format('YYYY-MM-DD')
-  receiveForm.value.receiveDate = dayjs().format('YYYY-MM-DD')
-})
-</script>
-
-<style scoped>
-.unit {
-  color: #909399;
-  font-size: 14px;
-  margin-top: 5px;
-}
-
-.query-form {
-  margin-bottom: 0;
-}
-
-.transport-print {
-  background: #fff;
-  padding: 20px;
-}
-
-.print-header {
-  text-align: center;
-  margin-bottom: 20px;
-  border-bottom: 2px solid #333;
-  padding-bottom: 15px;
-}
-
-.print-header h2 {
-  margin: 0 0 10px 0;
-  font-size: 24px;
-  color: #303133;
-}
-
-.print-no {
-  color: #606266;
-  margin: 0;
-}
-
-.print-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-bottom: 30px;
-}
-
-.print-table td {
-  border: 1px solid #dcdfe6;
-  padding: 10px 15px;
-  font-size: 14px;
-}
-
-.print-table .label {
-  background: #f5f7fa;
-  font-weight: 600;
-  color: #606266;
-}
-
-.print-footer {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 50px;
-  padding-top: 20px;
-  border-top: 1px dashed #dcdfe6;
-}
-
-.sign-item {
-  text-align: center;
-}
-
-.sign-item p {
-  margin: 5px 0;
-  color: #606266;
-}
-</style>
+    const newAllocation
