@@ -1288,4 +1288,185 @@ const generateAllocationFromOutbound = async (row) => {
       '生成确认',
       { type: 'info' }
     )
-    const newAllocation
+    const newAllocation = {
+      id: generateId(),
+      allocationNo: generateBatchNo('DB'),
+      outboundRequestId: row.id,
+      outboundRequestNo: row.requestNo,
+      species: row.species,
+      ageClass: row.ageClass,
+      quantity: row.quantity,
+      fromLocation: '中心苗圃',
+      toPlot: row.plotNo,
+      allocationDate: dayjs().format('YYYY-MM-DD'),
+      transporter: '',
+      phone: '',
+      status: 'pending',
+      arrivedCount: null,
+      lossCount: 0,
+      lossReason: null,
+      remark: row.remark || '',
+      purpose: row.purpose,
+      flowLogs: [{
+        time: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+        title: '由出圃申请生成',
+        content: `关联出圃申请：${row.requestNo}`,
+        operator: '管理员',
+        type: 'primary',
+        color: '#409eff'
+      }],
+      createTime: dayjs().format('YYYY-MM-DD HH:mm:ss')
+    }
+    await addItem(STORES.ALLOCATION_ORDERS, newAllocation)
+    await updateItem(STORES.OUTBOUND_REQUESTS, row.id, {
+      allocationNo: newAllocation.allocationNo,
+      allocationId: newAllocation.id,
+      allocationStatus: 'pending',
+      arrivedCount: null,
+      lossCount: null,
+      completeTime: null
+    })
+    ElMessage.success('调拨单生成成功')
+    loadData()
+  } catch (e) {}
+}
+
+const viewAllocationByNo = (allocationNo) => {
+  const target = allocationOrders.value.find(a => a.allocationNo === allocationNo)
+  if (target) {
+    viewAllocationDetail(target)
+  }
+}
+
+const onReceiveMaterialChange = (materialId) => {
+  const material = materials.value.find(m => m.id === materialId)
+  if (material) {
+    receiveForm.value.materialName = material.name
+    receiveForm.value.materialType = material.type
+    receiveForm.value.unit = material.unit
+  }
+}
+
+const saveReceive = async () => {
+  const newRecord = {
+    ...receiveForm.value,
+    id: generateId(),
+    createTime: dayjs().format('YYYY-MM-DD HH:mm:ss')
+  }
+  await addItem(STORES.RECEIVE_RECORDS, newRecord)
+  const material = materials.value.find(m => m.id === receiveForm.value.materialId)
+  if (material) {
+    await updateItem(STORES.MATERIALS, material.id, { stock: Math.max(0, material.stock - receiveForm.value.quantity) })
+  }
+  ElMessage.success('领用登记成功')
+  showReceiveForm.value = false
+  loadData()
+  receiveForm.value.receiveNo = generateBatchNo('LY')
+}
+
+const savePlot = async () => {
+  const newPlot = {
+    ...plotForm.value,
+    id: generateId()
+  }
+  await addItem(STORES.PLOTS, newPlot)
+  ElMessage.success('地块添加成功')
+  showPlotForm.value = false
+  loadData()
+}
+
+onMounted(async () => {
+  await loadData()
+  allocationForm.value.allocationNo = generateBatchNo('DB')
+  receiveForm.value.receiveNo = generateBatchNo('LY')
+  allocationForm.value.allocationDate = dayjs().format('YYYY-MM-DD')
+  receiveForm.value.receiveDate = dayjs().format('YYYY-MM-DD')
+})
+</script>
+
+<style scoped>
+.unit {
+  color: #909399;
+  font-size: 14px;
+  margin-top: 5px;
+}
+
+.query-form {
+  margin-bottom: 0;
+}
+
+.transport-print {
+  background: #fff;
+  padding: 20px;
+}
+
+.print-header {
+  text-align: center;
+  margin-bottom: 20px;
+  border-bottom: 2px solid #333;
+  padding-bottom: 15px;
+}
+
+.print-header h2 {
+  margin: 0 0 10px 0;
+  font-size: 24px;
+  color: #303133;
+}
+
+.print-no {
+  color: #606266;
+  margin: 0;
+}
+
+.print-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 30px;
+}
+
+.print-table td {
+  border: 1px solid #dcdfe6;
+  padding: 10px 15px;
+  font-size: 14px;
+}
+
+.print-table .label {
+  background: #f5f7fa;
+  font-weight: 600;
+  color: #606266;
+}
+
+.print-footer {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 50px;
+  padding-top: 20px;
+  border-top: 1px dashed #dcdfe6;
+}
+
+.sign-item {
+  text-align: center;
+}
+
+.sign-item p {
+  margin: 5px 0;
+  color: #606266;
+}
+
+.mb-20 {
+  margin-bottom: 20px;
+}
+
+.flex-between {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #303133;
+  margin-bottom: 15px;
+}
+</style>

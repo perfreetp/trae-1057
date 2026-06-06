@@ -174,12 +174,19 @@
         <div class="card-section">
           <div class="flex-between mb-20">
             <div class="section-title" style="margin-bottom: 0;">年度经营分析</div>
-            <el-date-picker
-              v-model="analysisYear"
-              type="year"
-              placeholder="选择年份"
-              @change="loadAnalysisData"
-            />
+            <div>
+              <el-button type="success" @click="exportAnalysisData">
+                <el-icon><Download /></el-icon>
+                导出经营分析
+              </el-button>
+              <el-date-picker
+                v-model="analysisYear"
+                type="year"
+                placeholder="选择年份"
+                @change="loadAnalysisData"
+                style="margin-left: 10px;"
+              />
+            </div>
           </div>
           <el-row :gutter="20" class="mb-20">
             <el-col :span="6">
@@ -191,7 +198,7 @@
             </el-col>
             <el-col :span="6">
               <div class="stat-card analysis-stat" style="border-left: 4px solid #67c23a;">
-                <div class="label">出圃总量</div>
+                <div class="label">出圃总量(实到)</div>
                 <div class="value" style="color: #67c23a;">{{ analysisStats.totalOutbound }}</div>
                 <div class="unit">株</div>
               </div>
@@ -218,7 +225,7 @@
           <el-table :data="monthlyAnalysisData" stripe border style="width: 100%">
             <el-table-column prop="month" label="月份" width="100" fixed />
             <el-table-column prop="seedlingCount" label="育苗数量" width="120" />
-            <el-table-column prop="outboundCount" label="出圃数量" width="120" />
+            <el-table-column prop="outboundCount" label="出圃数量(实到)" width="140" />
             <el-table-column prop="lossCount" label="损耗数量" width="120" />
             <el-table-column prop="checkDiff" label="盘点差异" width="120" />
             <el-table-column label="树种分布" min-width="300">
@@ -240,9 +247,31 @@
               <template #default="{ row }">{{ getAgeClassLabel(row.ageClass) }}</template>
             </el-table-column>
             <el-table-column prop="seedlingCount" label="育苗数量" width="120" />
-            <el-table-column prop="outboundCount" label="出圃数量" width="120" />
+            <el-table-column prop="outboundCount" label="出圃数量(实到)" width="140" />
             <el-table-column prop="lossCount" label="损耗数量" width="120" />
             <el-table-column prop="stockCount" label="当前库存" width="120" />
+          </el-table>
+        </div>
+        <div class="card-section">
+          <div class="section-title">造林地块汇总统计</div>
+          <el-table :data="plotAnalysisData" stripe border style="width: 100%">
+            <el-table-column prop="plotNo" label="造林地块" width="150" />
+            <el-table-column prop="allocationCount" label="调拨单数量" width="120" />
+            <el-table-column prop="plannedCount" label="计划调入(株)" width="140" />
+            <el-table-column prop="arrivedCount" label="实际到达(株)" width="140" />
+            <el-table-column prop="lossCount" label="损耗数量(株)" width="140" />
+            <el-table-column prop="lossRate" label="损耗率" width="100">
+              <template #default="{ row }">
+                <span :style="{ color: row.lossRate > 5 ? '#f56c6c' : '#67c23a' }">{{ row.lossRate }}%</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="speciesList" label="涉及树种" min-width="250">
+              <template #default="{ row }">
+                <el-tag v-for="s in row.speciesList" :key="s" size="small" style="margin-right: 5px;">
+                  {{ getSpeciesLabel(s) }}
+                </el-tag>
+              </template>
+            </el-table-column>
           </el-table>
         </div>
       </el-tab-pane>
@@ -538,6 +567,8 @@
       <el-descriptions v-if="currentCheckRecord?.diffHandle" :column="2" border>
         <el-descriptions-item label="处理方式">{{ getDiffHandleLabel(currentCheckRecord.diffHandle.handleType) }}</el-descriptions-item>
         <el-descriptions-item label="处理人">{{ currentCheckRecord.diffHandle.handler }}</el-descriptions-item>
+        <el-descriptions-item label="处理前数量">{{ currentCheckRecord.diffHandle.beforeCount }} 株</el-descriptions-item>
+        <el-descriptions-item label="处理后数量">{{ currentCheckRecord.diffHandle.afterCount }} 株</el-descriptions-item>
         <el-descriptions-item label="处理时间">{{ currentCheckRecord.diffHandle.handleTime }}</el-descriptions-item>
         <el-descriptions-item label="处理说明" :span="2">{{ currentCheckRecord.diffHandle.handleResult }}</el-descriptions-item>
       </el-descriptions>
@@ -731,6 +762,7 @@ const analysisStats = ref({
 
 const monthlyAnalysisData = ref([])
 const speciesAgeAnalysis = ref([])
+const plotAnalysisData = ref([])
 
 const analysisChartOption = computed(() => {
   const months = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月']
@@ -808,7 +840,7 @@ const loadData = async () => {
   checkRecords.value = await getList(STORES.INVENTORY_CHECK)
   certificates.value = await getList(STORES.CERTIFICATES)
   beds.value = await getList(STORES.SEEDLING_BEDS)
-  allocations.value = await getList(STORES.ALLOCATIONS)
+  allocations.value = await getList(STORES.ALLOCATION_ORDERS)
   loadAnalysisData()
 }
 
@@ -1011,15 +1043,40 @@ const saveDiffHandle = async () => {
     ElMessage.warning('请输入处理人')
     return
   }
+
+  const checkRecord = currentDiffCheck.value
+  const beforeCount = checkRecord.theoreticalCount
+  let afterCount = beforeCount
+
+  if (checkRecord.bedId) {
+    const bed = beds.value.find(b => b.id === checkRecord.bedId)
+    if (bed) {
+      if (diffHandleForm.value.handleType === 'supplementary') {
+        afterCount = Math.max(beforeCount, checkRecord.actualCount)
+        const newSeedlingCount = Math.max(0, bed.seedlingCount + (checkRecord.actualCount - beforeCount))
+        await updateItem(STORES.SEEDLING_BEDS, bed.id, { seedlingCount: newSeedlingCount })
+      } else if (diffHandleForm.value.handleType === 'loss_confirm') {
+        afterCount = Math.min(beforeCount, checkRecord.actualCount)
+        const newSeedlingCount = Math.max(0, bed.seedlingCount - (beforeCount - checkRecord.actualCount))
+        await updateItem(STORES.SEEDLING_BEDS, bed.id, { seedlingCount: newSeedlingCount })
+      } else if (diffHandleForm.value.handleType === 'manual_correction') {
+        afterCount = checkRecord.actualCount
+        await updateItem(STORES.SEEDLING_BEDS, bed.id, { seedlingCount: checkRecord.actualCount })
+      }
+    }
+  }
+
   const updateData = {
     diffHandle: {
       ...diffHandleForm.value,
+      beforeCount,
+      afterCount,
       handleTime: dayjs().format('YYYY-MM-DD HH:mm:ss')
     },
     diffHandled: true
   }
   await updateItem(STORES.INVENTORY_CHECK, currentDiffCheck.value.id, updateData)
-  ElMessage.success('差异处理记录保存成功')
+  ElMessage.success('差异处理成功，库存已更新')
   showDiffHandleDialog.value = false
   loadData()
 }
@@ -1062,13 +1119,14 @@ const loadAnalysisData = () => {
   })
 
   allocations.value.forEach(alloc => {
-    if (alloc.createTime) {
-      const allocYear = dayjs(alloc.createTime).year()
+    if (alloc.allocationDate || alloc.createTime) {
+      const dateStr = alloc.allocationDate || alloc.createTime
+      const allocYear = dayjs(dateStr).year()
       if (allocYear === year) {
-        const month = dayjs(alloc.createTime).month()
-        monthlyData[month].outboundCount += alloc.quantity || 0
-        if (alloc.lossCount) {
-          monthlyData[month].lossCount += alloc.lossCount
+        const month = dayjs(dateStr).month()
+        if (alloc.status === 'completed') {
+          monthlyData[month].outboundCount += alloc.arrivedCount || 0
+          monthlyData[month].lossCount += alloc.lossCount || 0
         }
       }
     }
@@ -1113,7 +1171,7 @@ const loadAnalysisData = () => {
   })
 
   allocations.value.forEach(alloc => {
-    if (alloc.species && alloc.ageClass) {
+    if (alloc.species && alloc.ageClass && alloc.status === 'completed') {
       const key = `${alloc.species}_${alloc.ageClass}`
       if (!speciesAgeMap[key]) {
         speciesAgeMap[key] = {
@@ -1125,12 +1183,120 @@ const loadAnalysisData = () => {
           stockCount: 0
         }
       }
-      speciesAgeMap[key].outboundCount += alloc.quantity || 0
+      speciesAgeMap[key].outboundCount += alloc.arrivedCount || 0
       speciesAgeMap[key].lossCount += alloc.lossCount || 0
     }
   })
 
   speciesAgeAnalysis.value = Object.values(speciesAgeMap)
+
+  const plotMap = {}
+  allocations.value.forEach(alloc => {
+    const dateStr = alloc.allocationDate || alloc.createTime
+    if (dateStr && alloc.toPlot) {
+      const allocYear = dayjs(dateStr).year()
+      if (allocYear === year) {
+        const plotNo = alloc.toPlot
+        if (!plotMap[plotNo]) {
+          plotMap[plotNo] = {
+            plotNo,
+            allocationCount: 0,
+            plannedCount: 0,
+            arrivedCount: 0,
+            lossCount: 0,
+            speciesSet: new Set()
+          }
+        }
+        plotMap[plotNo].allocationCount++
+        plotMap[plotNo].plannedCount += alloc.quantity || 0
+        if (alloc.status === 'completed') {
+          plotMap[plotNo].arrivedCount += alloc.arrivedCount || 0
+          plotMap[plotNo].lossCount += alloc.lossCount || 0
+        }
+        if (alloc.species) {
+          plotMap[plotNo].speciesSet.add(alloc.species)
+        }
+      }
+    }
+  })
+
+  plotAnalysisData.value = Object.values(plotMap).map(item => ({
+    plotNo: item.plotNo,
+    allocationCount: item.allocationCount,
+    plannedCount: item.plannedCount,
+    arrivedCount: item.arrivedCount,
+    lossCount: item.lossCount,
+    lossRate: item.plannedCount > 0 ? ((item.lossCount / item.plannedCount) * 100).toFixed(1) : 0,
+    speciesList: Array.from(item.speciesSet)
+  }))
+}
+
+const exportAnalysisData = async () => {
+  const year = dayjs(analysisYear.value).year()
+
+  let csvContent = '\uFEFF'
+  csvContent += `${year}年度经营分析报表\n\n`
+
+  csvContent += `一、总体统计\n`
+  csvContent += `指标,数值,单位\n`
+  csvContent += `育苗总量,${analysisStats.value.totalSeedlings},株\n`
+  csvContent += `出圃总量(实到),${analysisStats.value.totalOutbound},株\n`
+  csvContent += `损耗总量,${analysisStats.value.totalLoss},株\n`
+  csvContent += `盘点差异,${analysisStats.value.totalDiff},株\n\n`
+
+  csvContent += `二、月度趋势统计\n`
+  csvContent += `月份,育苗数量,出圃数量(实到),损耗数量,盘点差异\n`
+  monthlyAnalysisData.value.forEach(item => {
+    csvContent += `${item.month},${item.seedlingCount},${item.outboundCount},${item.lossCount},${item.checkDiff}\n`
+  })
+  csvContent += `\n`
+
+  csvContent += `三、树种龄级统计\n`
+  csvContent += `树种,龄级,育苗数量,出圃数量(实到),损耗数量,当前库存\n`
+  speciesAgeAnalysis.value.forEach(item => {
+    csvContent += `${getSpeciesLabel(item.species)},${getAgeClassLabel(item.ageClass)},${item.seedlingCount},${item.outboundCount},${item.lossCount},${item.stockCount}\n`
+  })
+  csvContent += `\n`
+
+  csvContent += `四、造林地块统计\n`
+  csvContent += `造林地块,调拨单数量,计划调入(株),实际到达(株),损耗数量(株),损耗率(%),涉及树种\n`
+  plotAnalysisData.value.forEach(item => {
+    csvContent += `${item.plotNo},${item.allocationCount},${item.plannedCount},${item.arrivedCount},${item.lossCount},${item.lossRate},${item.speciesList.map(s => getSpeciesLabel(s)).join('、')}\n`
+  })
+  csvContent += `\n`
+
+  csvContent += `五、异常调拨汇总\n`
+  const abnormalAllocs = allocations.value.filter(a => {
+    const dateStr = a.allocationDate || a.createTime
+    return dateStr && dayjs(dateStr).year() === year && a.status === 'abnormal'
+  })
+  csvContent += `调拨单号,树种,龄级,计划数量,状态,异常原因,登记时间\n`
+  abnormalAllocs.forEach(item => {
+    const abnormalLog = (item.flowLogs || []).find(l => l.title && l.title.includes('异常'))
+    csvContent += `${item.allocationNo},${getSpeciesLabel(item.species)},${getAgeClassLabel(item.ageClass)},${item.quantity},异常,${abnormalLog?.content || item.lossReason || '无'},${item.updateTime || item.createTime}\n`
+  })
+  csvContent += `\n`
+
+  csvContent += `六、盘点差异处理汇总\n`
+  const handledChecks = checkRecords.value.filter(c => {
+    return c.checkDate && dayjs(c.checkDate).year() === year && c.diffHandle
+  })
+  csvContent += `盘点编号,树种,龄级,差异数量,处理方式,处理前数量,处理后数量,处理人,处理时间\n`
+  handledChecks.forEach(item => {
+    csvContent += `${item.checkNo},${getSpeciesLabel(item.species)},${getAgeClassLabel(item.ageClass)},${item.diffCount},${getDiffHandleLabel(item.diffHandle.handleType)},${item.diffHandle.beforeCount},${item.diffHandle.afterCount},${item.diffHandle.handler},${item.diffHandle.handleTime}\n`
+  })
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+  const link = document.createElement('a')
+  const url = URL.createObjectURL(blob)
+  link.setAttribute('href', url)
+  link.setAttribute('download', `${year}年度经营分析报表.csv`)
+  link.style.visibility = 'hidden'
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+
+  ElMessage.success('经营分析导出成功！')
 }
 
 const exportBackup = async () => {
